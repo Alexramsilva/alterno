@@ -13,98 +13,52 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-# --- Configuración general ---
-st.set_page_config(page_title="Modelo de Resorte (Hooke) Aplicado al Precio", layout="wide")
-st.title("📈 Modelo del Resorte de Hooke aplicado al Precio de un Activo")
+st.set_page_config(layout="wide")
+st.title("Modelo del Resorte de Hooke aplicado al Precio")
 
-# --- Lista de activos ---
+# === 1. Menú desplegable ===
 TICKERS = ["BTC-USD", "GAPB.MX", "PLTR", "SPY", "GRUMAB.MX", "FMTY14.MX", "IAU"]
 
-# --- Menú en Streamlit ---
-ticker = st.selectbox("Selecciona un activo:", TICKERS)
+ticker = st.selectbox(
+    "Selecciona un activo:",
+    TICKERS
+)
 
-# --- Descargar datos ---
-st.info(f"Descargando datos de {ticker}...")
+# === 2. Descargar datos ===
 df = yf.download(ticker, period="ytd", interval="1d")
 
 if df.empty:
-    st.error("No se pudieron descargar los datos.")
+    st.error("No se pudieron descargar datos del activo seleccionado.")
     st.stop()
 
-# ===============================
-# 2. Medias móviles
-# ===============================
+# === 3. Calcular medias móviles ===
 df["MA5"] = df["Close"].rolling(5).mean()
 df["MA10"] = df["Close"].rolling(10).mean()
-
 df.dropna(inplace=True)
 
-# ===============================
-# 3. Señales por cruces
-# ===============================
+# === 4. Señales de entrada/salida ===
 df["Signal"] = np.where(df["MA5"] > df["MA10"], 1, 0)
 df["Crossover"] = df["Signal"].diff()
 
-# ===============================
-# 4. Modelo del resorte (Hooke)
-# ===============================
-df["x"] = df["Close"] - df["MA10"]
+# === 5. Modelo del resorte ===
+close_values = df["Close"].values.flatten()
+ma10_values = df["MA10"].values.flatten()
+
+df["x"] = close_values - ma10_values
 k = 0.001
 df["Force"] = -k * df["x"]
 
-# Umbral (Hooke estirado)
+# === 6. Umbral (resorte tenso) ===
 threshold = df["x"].std() * 1.5
 df["Exit"] = np.where(abs(df["x"]) > threshold, 1, 0)
 
-# Fechas de salida y entrada
 df["Exit_diff"] = df["Exit"].diff()
+
 exit_dates = df[(df["Exit_diff"] == 1) & (df["MA5"] > df["MA10"])].index
 entry_dates = df[(df["Exit_diff"] == -1) & (df["MA5"] < df["MA10"])].index
 
-# ===============================
-# 5. Gráfico de Matplotlib
-# ===============================
-fig, ax1 = plt.subplots(figsize=(14, 6))
+# === 7. Gráfico ===
+fig, ax1 = plt.subplots(figsize=(12, 6))
 
-# Precio y MA10
-ax1.plot(df.index, df["Close"], label="Precio", color="black", linewidth=1)
-ax1.plot(df.index, df["MA10"], label="Media móvil (equilibrio)", color="orange")
-
-# Zona elástica
-ax1.fill_between(
-    df.index,
-    df["MA10"] - threshold,
-    df["MA10"] + threshold,
-    color="green",
-    alpha=0.2,
-    label="Zona elástica (Hooke)"
-)
-
-# Líneas de entrada y salida
-for date in exit_dates:
-    ax1.axvline(x=date, color="red", linestyle="--", alpha=0.5)
-    ax1.text(date, df["Close"].max(), "S", color="red", fontsize=8, rotation=90, va='top')
-
-for date in entry_dates:
-    ax1.axvline(x=date, color="green", linestyle="--", alpha=0.5)
-    ax1.text(date, df["Close"].min(), "E", color="green", fontsize=8, rotation=90, va='bottom')
-
-ax1.set_xlabel("Fecha")
-ax1.set_ylabel("Precio")
-ax1.legend(loc="upper left")
-ax1.grid(True)
-
-# --- Segundo eje (Fuerza) ---
-ax2 = ax1.twinx()
-ax2.plot(df.index, df["Force"], label="Fuerza (-k*x)", color="blue", linestyle="--", alpha=0.7)
-ax2.set_ylabel("Fuerza")
-ax2.legend(loc="lower left")
-
-plt.title(f"Modelo del Resorte de Hooke aplicado al Precio de {ticker}")
-
-# Mostrar en Streamlit
-st.pyplot(fig)
-
-# Mostrar tabla
-st.subheader("Datos generados")
-st.dataframe(df.tail())
+ax1.plot(df["Close"], label="Precio", color="black", linewidth=1)
+ax1.plot(df["MA10"], label="Media

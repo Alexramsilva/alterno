@@ -12,6 +12,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 
 # -----------------------------------------------------
 # CONFIGURACIÓN
@@ -21,7 +22,6 @@ st.set_page_config(page_title="Modelo Hooke Trading", layout="wide")
 TICKERS = ["BTC-USD", "GAPB.MX", "PLTR", "SPY", "GRUMAB.MX", "FMTY14.MX", "IAU"]
 
 st.title("📈 Modelo del Resorte de Hooke aplicado al Trading")
-
 
 # -----------------------------------------------------
 # SELECCIÓN DEL TICKER
@@ -39,12 +39,14 @@ if df.empty:
     st.error("No hay datos disponibles.")
     st.stop()
 
+# -----------------------------------------------------
+# CÁLCULOS TÉCNICOS
+# -----------------------------------------------------
 df["MA5"] = df["Close"].rolling(5).mean()
 df["MA10"] = df["Close"].rolling(10).mean()
 
 df.dropna(inplace=True)
 
-# Señales binarias
 df["Signal"] = np.where(df["MA5"] > df["MA10"], 1, 0)
 df["Crossover"] = df["Signal"].diff()
 
@@ -54,11 +56,10 @@ df["Crossover"] = df["Signal"].diff()
 close_values = df["Close"].values.flatten()
 ma10_values = df["MA10"].values.flatten()
 
-df["x"] = close_values - ma10_values   # desplazamiento
-k = 0.001                              # constante de elasticidad
+df["x"] = close_values - ma10_values
+k = 0.001
 df["Force"] = -k * df["x"]
 
-# Umbral para identificar tensión del resorte
 threshold = df["x"].std() * 1.5
 df["Exit"] = np.where(abs(df["x"]) > threshold, 1, 0)
 
@@ -70,7 +71,6 @@ fig, ax1 = plt.subplots(figsize=(14, 7))
 ax1.plot(df["Close"], label="Precio", color="black", linewidth=1)
 ax1.plot(df["MA10"], label="Media móvil (equilibrio)", color="orange")
 
-# Zona elástica (Hooke)
 ax1.fill_between(
     df.index,
     df["MA10"] - threshold,
@@ -80,12 +80,10 @@ ax1.fill_between(
     label="Zona elástica (Hooke)"
 )
 
-# Puntos de entrada y salida
 df["Exit_diff"] = df["Exit"].diff()
 exit_dates = df[(df["Exit_diff"] == 1) & (df["MA5"] > df["MA10"])].index
 entry_dates = df[(df["Exit_diff"] == -1) & (df["MA5"] < df["MA10"])].index
 
-# Líneas verticales y etiquetas
 for date in exit_dates:
     ax1.axvline(x=date, color="red", linestyle="--", alpha=0.5)
     ax1.text(date, df["Close"].max(), "S", color="red", fontsize=8, rotation=90, va="top")
@@ -96,10 +94,9 @@ for date in entry_dates:
 
 ax1.set_xlabel("Fecha")
 ax1.set_ylabel("Precio")
-ax1.legend(loc="upper left")
 ax1.grid(True)
+ax1.legend(loc="upper left")
 
-# Segundo eje para la fuerza
 ax2 = ax1.twinx()
 ax2.plot(df["Force"], label="Fuerza (-k*x)", color="blue", linestyle="--", alpha=0.7)
 ax2.set_ylabel("Fuerza (k*x)")
@@ -110,7 +107,57 @@ plt.title(f"Modelo del Resorte de Hooke aplicado al precio de {ticker}")
 st.pyplot(fig)
 
 # -----------------------------------------------------
-# MOSTRAR DATAFRAME
+# TABLA Y DISTRIBUCIÓN (REGLA DE STURGES)
 # -----------------------------------------------------
-st.subheader("Datos procesados")
-st.dataframe(df)
+st.subheader("📊 Distribución de Precios (Regla de Sturges)")
+
+df1 = df[df["Exit"] == 1]
+precios = df1["Close"].values.ravel()
+
+if len(precios) > 2:
+
+    # Número de intervalos Sturges
+    n = len(precios)
+    k_sturges = int(1 + np.log2(n))
+
+    bins = np.linspace(min(precios), max(precios), k_sturges)
+
+    precios_categorizados = pd.cut(precios, bins=bins, right=False)
+
+    tabla_frecuencias = precios_categorizados.value_counts().sort_index()
+    frecuencia_relativa = tabla_frecuencias / n
+
+    tabla_frecuencias_relativa = pd.DataFrame({
+        'Intervalo': [str(i) for i in tabla_frecuencias.index],
+        'Frecuencia Absoluta': tabla_frecuencias.values,
+        'Frecuencia Relativa': frecuencia_relativa.values
+    })
+
+    st.dataframe(tabla_frecuencias_relativa)
+
+    # -----------------------------------------------------
+    # S A N K E Y
+    # -----------------------------------------------------
+    labels = list(tabla_frecuencias_relativa['Intervalo']) + ["Total"]
+    sources = list(range(len(tabla_frecuencias_relativa)))
+    targets = [len(tabla_frecuencias_relativa)] * len(tabla_frecuencias_relativa)
+    values = list(tabla_frecuencias_relativa['Frecuencia Absoluta'])
+
+    sankey_fig = go.Figure(go.Sankey(
+        node=dict(
+            label=labels,
+            pad=15,
+            thickness=20
+        ),
+        link=dict(
+            source=sources,
+            target=targets,
+            value=values
+        )
+    ))
+
+    sankey_fig.update_layout(title_text="Distribución de Precios - Diagrama de Sankey", font_size=10)
+    st.plotly_chart(sankey_fig, use_container_width=True)
+
+else:
+    st.info("No hay suficientes puntos de 'Exit' para generar la distribución y el Sankey.")

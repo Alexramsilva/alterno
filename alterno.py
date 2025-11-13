@@ -21,7 +21,7 @@ st.set_page_config(page_title="Modelo Hooke Trading", layout="wide")
 
 TICKERS = ["BTC-USD", "GAPB.MX", "PLTR", "SPY", "GRUMAB.MX", "FMTY14.MX", "IAU"]
 
-st.title("📈 Modelo del Resorte de Hooke aplicado al Trading")
+st.title("Modelo del Resorte de Hooke aplicado al Trading")
 
 # -----------------------------------------------------
 # SELECCIÓN DEL TICKER

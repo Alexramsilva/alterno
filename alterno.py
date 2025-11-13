@@ -107,57 +107,51 @@ plt.title(f"Modelo del Resorte de Hooke aplicado al precio de {ticker}")
 st.pyplot(fig)
 
 # -----------------------------------------------------
-# TABLA Y DISTRIBUCIÓN (REGLA DE STURGES)
 # -----------------------------------------------------
-st.subheader("📊 Distribución de Precios (Regla de Sturges)")
+df1=df["Close"]
+precios=df1.values.ravel()
 
-df1 = df[df["Exit"] == 1]
-precios = df1["Close"].values.ravel()
+# Aplicar la Regla de Sturges
+n = len(precios)
+k = int(1 + np.log2(n))  # Número de intervalos
 
-if len(precios) > 2:
+# Crear los bins (intervalos)
+bins = np.linspace(min(precios), max(precios), k )
 
-    # Número de intervalos Sturges
-    n = len(precios)
-    k_sturges = int(1 + np.log2(n))
+# Aplicar pd.cut() para clasificar los valores en los intervalos
+precios_categorizados = pd.cut(precios, bins=bins, right=False)
 
-    bins = np.linspace(min(precios), max(precios), k_sturges)
+# Calcular la frecuencia de cada intervalo
+tabla_frecuencias = precios_categorizados.value_counts().sort_index()
 
-    precios_categorizados = pd.cut(precios, bins=bins, right=False)
+# Calcular la frecuencia relativa
+frecuencia_relativa = tabla_frecuencias / n
 
-    tabla_frecuencias = precios_categorizados.value_counts().sort_index()
-    frecuencia_relativa = tabla_frecuencias / n
+# Crear la tabla final con frecuencias absolutas y relativas
+tabla_frecuencias_relativa = pd.DataFrame({
+    'Intervalo': [str(interval) for interval in tabla_frecuencias.index],
+    'Frecuencia Absoluta': tabla_frecuencias.values,
+    'Frecuencia Relativa': frecuencia_relativa.values
+})
 
-    tabla_frecuencias_relativa = pd.DataFrame({
-        'Intervalo': [str(i) for i in tabla_frecuencias.index],
-        'Frecuencia Absoluta': tabla_frecuencias.values,
-        'Frecuencia Relativa': frecuencia_relativa.values
-    })
+# Crear el diagrama de Sankey
+labels = list(tabla_frecuencias_relativa['Intervalo']) + ["Total"]
+sources = list(range(len(tabla_frecuencias_relativa)))
+targets = [len(tabla_frecuencias_relativa)] * len(tabla_frecuencias_relativa)
+values = list(tabla_frecuencias_relativa['Frecuencia Absoluta'])
 
-    st.dataframe(tabla_frecuencias_relativa)
+fig = go.Figure(go.Sankey(
+    node=dict(
+        label=labels,
+        pad=15,
+        thickness=20
+    ),
+    link=dict(
+        source=sources,
+        target=targets,
+        value=values
+    )
+))
 
-    # -----------------------------------------------------
-    # S A N K E Y
-    # -----------------------------------------------------
-    labels = list(tabla_frecuencias_relativa['Intervalo']) + ["Total"]
-    sources = list(range(len(tabla_frecuencias_relativa)))
-    targets = [len(tabla_frecuencias_relativa)] * len(tabla_frecuencias_relativa)
-    values = list(tabla_frecuencias_relativa['Frecuencia Absoluta'])
-
-    sankey_fig = go.Figure(go.Sankey(
-        node=dict(
-            label=labels,
-            pad=15,
-            thickness=20
-        ),
-        link=dict(
-            source=sources,
-            target=targets,
-            value=values
-        )
-    ))
-
-    sankey_fig.update_layout(title_text="Distribución de Precios - Diagrama de Sankey", font_size=10)
-    st.plotly_chart(sankey_fig, use_container_width=True)
-
-else:
-    st.info("No hay suficientes puntos de 'Exit' para generar la distribución y el Sankey.")
+fig.update_layout(title_text="Distribución de Precios - Diagrama de Sankey", font_size=10)
+fig.show()

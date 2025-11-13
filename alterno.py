@@ -7,293 +7,104 @@ Original file is located at
     https://colab.research.google.com/drive/1pvi_VpyUhdYtpxI8dBBWBOycxVrVxo96
 """
 
-# app.py
 import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import MinMaxScaler
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense, Dropout
-from tensorflow.keras.callbacks import EarlyStopping
-import plotly.graph_objects as go
-import plotly.express as px
-from datetime import timedelta
+import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="Hooke + LSTM Trading Dashboard", layout="wide")
+# --- Configuración general ---
+st.set_page_config(page_title="Modelo de Resorte (Hooke) Aplicado al Precio", layout="wide")
+st.title("📈 Modelo del Resorte de Hooke aplicado al Precio de un Activo")
 
-# ---------------------------
-# Utilities
-# ---------------------------
-@st.cache_data(show_spinner=False)
-def download_data(ticker, period="ytd", interval="1d"):
-    df = yf.download(ticker, period=period, interval=interval)
-    if not df.empty:
-        df.index = pd.to_datetime(df.index)
-    return df
-
-def prepare_features(df):
-    df = df.copy()
-    df["MA5"] = df["Close"].rolling(5).mean()
-    df["MA10"] = df["Close"].rolling(10).mean()
-    df.dropna(inplace=True)
-    df["x"] = df["Close"] - df["MA10"]
-    return df
-
-def create_sequences(values, lookback):
-    X, y = [], []
-    for i in range(len(values) - lookback):
-        X.append(values[i:i+lookback])
-        y.append(values[i+lookback])
-    return np.array(X), np.array(y)
-
-def build_lstm(input_shape, units=50, dropout=0.0):
-    model = Sequential()
-    model.add(LSTM(units, input_shape=input_shape))
-    if dropout > 0:
-        model.add(Dropout(dropout))
-    model.add(Dense(1))
-    model.compile(optimizer="adam", loss="mse")
-    return model
-
-def backtest_prediction_strategy(df, preds, initial_capital=1_000_000):
-    """
-    Strategy:
-      - At time t, if pred_{t} > price_{t-1} then go long at open of t (we approximate using close).
-      - Otherwise stay in cash.
-    We align preds to next-day predictions: preds[i] predicts price at index test_start + i
-    """
-    df_bt = df.copy().reset_index().rename(columns={"index": "Date"})
-    df_bt["Price"] = df_bt["Close"]
-    # We'll assume preds correspond to the last len(preds) rows
-    preds_full = np.full(len(df_bt), np.nan)
-    preds_full[-len(preds):] = preds.flatten()
-    df_bt["Pred"] = preds_full
-
-    # signal: 1 if pred > price -> long; else 0
-    df_bt["Signal"] = (df_bt["Pred"] > df_bt["Price"]).astype(int).shift(1).fillna(0)  # shift so signal acts next day
-    df_bt["Return"] = df_bt["Price"].pct_change().fillna(0)
-    df_bt["StrategyReturn"] = df_bt["Signal"] * df_bt["Return"]
-
-    df_bt["CumulativeStrat"] = (1 + df_bt["StrategyReturn"]).cumprod() * initial_capital
-    df_bt["CumulativeBH"] = (1 + df_bt["Return"]).cumprod() * initial_capital
-
-    # metrics
-    total_return_strat = df_bt["CumulativeStrat"].iloc[-1] / initial_capital - 1
-    total_return_bh = df_bt["CumulativeBH"].iloc[-1] / initial_capital - 1
-
-    # Annualized return (approx): (1+R)^(252/T)-1 where T in days
-    T = len(df_bt) / 252 if len(df_bt) > 0 else 1
-    ann_strat = (1 + total_return_strat) ** (1 / T) - 1 if T != 0 else np.nan
-    ann_bh = (1 + total_return_bh) ** (1 / T) - 1 if T != 0 else np.nan
-
-    # Max drawdown
-    def max_drawdown(series):
-        peak = series.expanding(min_periods=1).max()
-        dd = (series - peak) / peak
-        return dd.min()
-
-    mdd_strat = max_drawdown(df_bt["CumulativeStrat"])
-    mdd_bh = max_drawdown(df_bt["CumulativeBH"])
-
-    metrics = {
-        "total_return_strat": total_return_strat,
-        "total_return_bh": total_return_bh,
-        "annualized_strat": ann_strat,
-        "annualized_bh": ann_bh,
-        "mdd_strat": mdd_strat,
-        "mdd_bh": mdd_bh,
-        "last_equity_strat": df_bt["CumulativeStrat"].iloc[-1],
-        "last_equity_bh": df_bt["CumulativeBH"].iloc[-1],
-    }
-    return df_bt, metrics
-
-# ---------------------------
-# Sidebar: settings
-# ---------------------------
-st.sidebar.header("Configuración")
+# --- Lista de activos ---
 TICKERS = ["BTC-USD", "GAPB.MX", "PLTR", "SPY", "GRUMAB.MX", "FMTY14.MX", "IAU"]
-ticker = st.sidebar.selectbox("Selecciona activo", TICKERS, index=0)
-period = st.sidebar.selectbox("Periodo a descargar", ["1mo", "3mo", "6mo", "ytd", "1y", "2y", "5y"], index=3)
-interval = st.sidebar.selectbox("Intervalo", ["1d", "1wk"], index=0)
 
-# Model params
-st.sidebar.markdown("---")
-st.sidebar.subheader("Parámetros LSTM")
-lookback = st.sidebar.number_input("Lookback (días)", min_value=5, max_value=120, value=20, step=1)
-units = st.sidebar.number_input("Unidades LSTM", min_value=8, max_value=256, value=50, step=1)
-dropout = st.sidebar.number_input("Dropout (0-0.5)", min_value=0.0, max_value=0.5, value=0.0, step=0.05)
-epochs = st.sidebar.number_input("Epochs", min_value=1, max_value=500, value=30, step=1)
-batch_size = st.sidebar.number_input("Batch size", min_value=8, max_value=1024, value=32, step=1)
-train_split = st.sidebar.slider("Proporción de entrenamiento", 0.5, 0.95, 0.8, 0.01)
-k_elastic = st.sidebar.number_input("Constante k (Hooke)", min_value=0.0, max_value=0.01, value=0.001, step=0.0001)
+# --- Menú en Streamlit ---
+ticker = st.selectbox("Selecciona un activo:", TICKERS)
 
-st.sidebar.markdown("---")
-st.sidebar.write("👨‍💻 App creada: Hooke + LSTM + Backtest")
-st.sidebar.write("Puedes ajustar parámetros y reentrenar.")
+# --- Descargar datos ---
+st.info(f"Descargando datos de {ticker}...")
+df = yf.download(ticker, period="ytd", interval="1d")
 
-# ---------------------------
-# Main: load data
-# ---------------------------
-st.header("Dashboard: Modelo del Resorte + LSTM")
-
-with st.spinner("Descargando datos..."):
-    df_raw = download_data(ticker, period=period, interval=interval)
-
-if df_raw.empty:
-    st.error("No se obtuvieron datos para el ticker seleccionado.")
+if df.empty:
+    st.error("No se pudieron descargar los datos.")
     st.stop()
 
-df = prepare_features(df_raw)
+# ===============================
+# 2. Medias móviles
+# ===============================
+df["MA5"] = df["Close"].rolling(5).mean()
+df["MA10"] = df["Close"].rolling(10).mean()
+
+df.dropna(inplace=True)
+
+# ===============================
+# 3. Señales por cruces
+# ===============================
+df["Signal"] = np.where(df["MA5"] > df["MA10"], 1, 0)
+df["Crossover"] = df["Signal"].diff()
+
+# ===============================
+# 4. Modelo del resorte (Hooke)
+# ===============================
+df["x"] = df["Close"] - df["MA10"]
+k = 0.001
+df["Force"] = -k * df["x"]
+
+# Umbral (Hooke estirado)
 threshold = df["x"].std() * 1.5
-df["Force"] = -k_elastic * df["x"]
 df["Exit"] = np.where(abs(df["x"]) > threshold, 1, 0)
 
-# ---------------------------
-# Tabs / Pestañas
-# ---------------------------
-tab1, tab2, tab3, tab4 = st.tabs(["Datos", "Modelo & Predicción", "Backtest", "Descargas / Ayuda"])
+# Fechas de salida y entrada
+df["Exit_diff"] = df["Exit"].diff()
+exit_dates = df[(df["Exit_diff"] == 1) & (df["MA5"] > df["MA10"])].index
+entry_dates = df[(df["Exit_diff"] == -1) & (df["MA5"] < df["MA10"])].index
 
-# ---------------------------
-# Tab 1: Datos
-# ---------------------------
-with tab1:
-    st.subheader("Datos y visualización interactiva")
-    st.write(f"Ticker: **{ticker}** — Periodo: **{period}** — Intervalo: **{interval}**")
-    st.dataframe(df.tail(200))
+# ===============================
+# 5. Gráfico de Matplotlib
+# ===============================
+fig, ax1 = plt.subplots(figsize=(14, 6))
 
-    # Interactive price chart with MA10 zone and entry/exit markers
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df.index, y=df["Close"], mode="lines", name="Close"))
-    fig.add_trace(go.Scatter(x=df.index, y=df["MA10"], mode="lines", name="MA10"))
-    # Elastic zone
-    fig.add_trace(go.Scatter(
-        x=list(df.index) + list(df.index[::-1]),
-        y=list(df["MA10"] + threshold) + list((df["MA10"] - threshold)[::-1]),
-        fill="toself", fillcolor="rgba(0,200,0,0.14)", line=dict(width=0), showlegend=True, name="Zona elástica"
-    ))
+# Precio y MA10
+ax1.plot(df.index, df["Close"], label="Precio", color="black", linewidth=1)
+ax1.plot(df.index, df["MA10"], label="Media móvil (equilibrio)", color="orange")
 
-    exits = df[(df["Exit"].diff() == 1) & (df["MA5"] > df["MA10"])].index
-    entries = df[(df["Exit"].diff() == -1) & (df["MA5"] < df["MA10"])].index
-    fig.add_trace(go.Scatter(x=exits, y=df.loc[exits]["Close"], mode="markers", name="Salida (S)", marker_symbol="x", marker_size=8, marker_color="red"))
-    fig.add_trace(go.Scatter(x=entries, y=df.loc[entries]["Close"], mode="markers", name="Entrada (E)", marker_symbol="circle", marker_size=8, marker_color="green"))
+# Zona elástica
+ax1.fill_between(
+    df.index,
+    df["MA10"] - threshold,
+    df["MA10"] + threshold,
+    color="green",
+    alpha=0.2,
+    label="Zona elástica (Hooke)"
+)
 
-    fig.update_layout(title=f"{ticker} — Precio, MA10 y Zona Hooke", xaxis_title="Fecha", yaxis_title="Precio")
-    st.plotly_chart(fig, use_container_width=True)
+# Líneas de entrada y salida
+for date in exit_dates:
+    ax1.axvline(x=date, color="red", linestyle="--", alpha=0.5)
+    ax1.text(date, df["Close"].max(), "S", color="red", fontsize=8, rotation=90, va='top')
 
-# ---------------------------
-# Tab 2: Modelo & Predicción
-# ---------------------------
-with tab2:
-    st.subheader("Entrenar LSTM y generar predicciones")
-    st.write("El modelo usa `Close` escalado. Las predicciones se comparan con el conjunto de prueba.")
+for date in entry_dates:
+    ax1.axvline(x=date, color="green", linestyle="--", alpha=0.5)
+    ax1.text(date, df["Close"].min(), "E", color="green", fontsize=8, rotation=90, va='bottom')
 
-    # Prepare series
-    prices = df["Close"].values.reshape(-1, 1)
-    scaler = MinMaxScaler(feature_range=(0, 1))
-    prices_scaled = scaler.fit_transform(prices)
+ax1.set_xlabel("Fecha")
+ax1.set_ylabel("Precio")
+ax1.legend(loc="upper left")
+ax1.grid(True)
 
-    # Create sequences
-    X, y = create_sequences(prices_scaled, lookback)
-    if len(X) < 10:
-        st.error("No hay suficientes datos para el lookback seleccionado. Reduce el lookback o aumenta el periodo.")
-    else:
-        split = int(len(X) * train_split)
-        X_train, X_test = X[:split], X[split:]
-        y_train, y_test = y[:split], y[split:]
+# --- Segundo eje (Fuerza) ---
+ax2 = ax1.twinx()
+ax2.plot(df.index, df["Force"], label="Fuerza (-k*x)", color="blue", linestyle="--", alpha=0.7)
+ax2.set_ylabel("Fuerza")
+ax2.legend(loc="lower left")
 
-        # Reshape for LSTM: (samples, timesteps, features)
-        X_train = X_train.reshape((X_train.shape[0], X_train.shape[1], 1))
-        X_test = X_test.reshape((X_test.shape[0], X_test.shape[1], 1))
+plt.title(f"Modelo del Resorte de Hooke aplicado al Precio de {ticker}")
 
-        st.info(f"Datos: {len(X)} muestras totales — Train: {len(X_train)} — Test: {len(X_test)}")
+# Mostrar en Streamlit
+st.pyplot(fig)
 
-        # Train model (with caching to avoid retrain unless params change)
-        @st.cache_resource(ttl=3600)
-        def train_model_cached(lookback, units, dropout, epochs, batch_size, X_train, y_train):
-            model = build_lstm(input_shape=(lookback, 1), units=units, dropout=dropout)
-            es = EarlyStopping(monitor="loss", patience=10, restore_best_weights=True, verbose=0)
-            model.fit(X_train, y_train, epochs=epochs, batch_size=batch_size, verbose=0, callbacks=[es])
-            return model
-
-        with st.spinner("Entrenando LSTM... (puede tardar unos segundos según epochs)"):
-            model = train_model_cached(lookback, units, dropout, epochs, batch_size, X_train, y_train)
-
-        # Predict on test
-        preds_scaled = model.predict(X_test, verbose=0)
-        preds = scaler.inverse_transform(preds_scaled)
-
-        # Align predictions to dataframe
-        # preds correspond to indices: start = lookback + split
-        start_idx = lookback + split
-        df_preds = df.reset_index().iloc[start_idx:].copy()
-        df_preds["Pred"] = preds.flatten()
-        df_preds = df_preds.set_index("index")
-
-        # Plot predictions vs actual
-        fig2 = go.Figure()
-        fig2.add_trace(go.Scatter(x=df.index, y=df["Close"], mode="lines", name="Close"))
-        fig2.add_trace(go.Scatter(x=df_preds.index, y=df_preds["Pred"], mode="lines", name="Predicción (LSTM)"))
-        fig2.update_layout(title="Close vs Predicción (conjunto de prueba)", xaxis_title="Fecha", yaxis_title="Precio")
-        st.plotly_chart(fig2, use_container_width=True)
-
-        # Error metrics
-        mse = np.mean((df_preds["Close"].values - df_preds["Pred"].values) ** 2)
-        mae = np.mean(np.abs(df_preds["Close"].values - df_preds["Pred"].values))
-        st.metric("MSE (test)", f"{mse:.6f}")
-        st.metric("MAE (test)", f"{mae:.6f}")
-
-        # Show a sample table
-        st.dataframe(df_preds[["Close", "Pred"]].tail(50))
-
-# ---------------------------
-# Tab 3: Backtest
-# ---------------------------
-with tab3:
-    st.subheader("Backtest: estrategia basada en predicción")
-    if 'df_preds' not in locals():
-        st.info("Entrena el modelo en la pestaña Modelo & Predicción para generar predicciones y correr el backtest.")
-    else:
-        with st.spinner("Ejecutando backtest..."):
-            # Use df (full df) and preds aligned previously
-            preds_for_bt = df_preds["Pred"].values.reshape(-1, 1)
-            df_bt, metrics = backtest_prediction_strategy(df, preds_for_bt, initial_capital=1000000)
-
-        st.write("### Resumen métricas")
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Retorno estrategia", f"{metrics['total_return_strat']*100:.2f}%")
-        col1.metric("Retorno Buy&Hold", f"{metrics['total_return_bh']*100:.2f}%")
-        col2.metric("Anualizado estrategia", f"{metrics['annualized_strat']*100:.2f}%")
-        col2.metric("Anualizado BH", f"{metrics['annualized_bh']*100:.2f}%")
-        col3.metric("MDD estrategia", f"{metrics['mdd_strat']*100:.2f}%")
-        col3.metric("MDD BH", f"{metrics['mdd_bh']*100:.2f}%")
-
-        st.write("### Curva de capital")
-        fig_bt = go.Figure()
-        fig_bt.add_trace(go.Scatter(x=df_bt["Date"], y=df_bt["CumulativeStrat"], mode="lines", name="Estrategia"))
-        fig_bt.add_trace(go.Scatter(x=df_bt["Date"], y=df_bt["CumulativeBH"], mode="lines", name="Buy & Hold"))
-        fig_bt.update_layout(xaxis_title="Fecha", yaxis_title="Capital", title="Equity Curve")
-        st.plotly_chart(fig_bt, use_container_width=True)
-
-        st.write("### Señales (últimos 100 registros)")
-        st.dataframe(df_bt[["Date", "Price", "Pred", "Signal", "StrategyReturn"]].tail(100))
-
-# ---------------------------
-# Tab 4: Descargas / Ayuda
-# ---------------------------
-with tab4:
-    st.subheader("Descargar datos y modelos / Notas")
-    st.write("- Puedes descargar el DataFrame con las predicciones o la serie original.")
-    if 'df_preds' in locals():
-        csv = df_preds[["Close", "Pred"]].to_csv().encode("utf-8")
-        st.download_button(label="Descargar predicciones (CSV)", data=csv, file_name=f"{ticker}_predicciones.csv", mime="text/csv")
-    # raw
-    csv_raw = df.to_csv().encode("utf-8")
-    st.download_button(label="Descargar datos procesados (CSV)", data=csv_raw, file_name=f"{ticker}_data.csv", mime="text/csv")
-
-    st.markdown("""
-    ### Notas
-    - La predicción LSTM es un ejemplo didáctico: para producción deberías validar más (walk-forward, features adicionales, regularización).
-    - Estrategia de backtest es muy simple (predicción > precio ⇒ long). Considera slippage, comisiones y ejecución real.
-    - Ajusta `lookback`, `epochs` y `train split` para mejorar resultados.
-    """)
+# Mostrar tabla
+st.subheader("Datos generados")
+st.dataframe(df.tail())

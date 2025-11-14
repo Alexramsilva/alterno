@@ -107,55 +107,6 @@ plt.title(f"Modelo del Resorte de Hooke aplicado al precio de {ticker}")
 st.pyplot(fig)
 
 # -----------------------------------------------------
-# -----------------------------------------------------
-df1=df["Close"]
-precios=df1.values.ravel()
-
-# Aplicar la Regla de Sturges
-n = len(precios)
-k = int(1 + np.log2(n))  # Número de intervalos
-
-# Crear los bins (intervalos)
-bins = np.linspace(min(precios), max(precios), k )
-
-# Aplicar pd.cut() para clasificar los valores en los intervalos
-precios_categorizados = pd.cut(precios, bins=bins, right=False)
-
-# Calcular la frecuencia de cada intervalo
-tabla_frecuencias = precios_categorizados.value_counts().sort_index()
-
-# Calcular la frecuencia relativa
-frecuencia_relativa = tabla_frecuencias / n
-
-# Crear la tabla final con frecuencias absolutas y relativas
-tabla_frecuencias_relativa = pd.DataFrame({
-    'Intervalo': [str(interval) for interval in tabla_frecuencias.index],
-    'Frecuencia Absoluta': tabla_frecuencias.values,
-    'Frecuencia Relativa': frecuencia_relativa.values
-})
-
-# Crear el diagrama de Sankey
-labels = list(tabla_frecuencias_relativa['Intervalo']) + ["Total"]
-sources = list(range(len(tabla_frecuencias_relativa)))
-targets = [len(tabla_frecuencias_relativa)] * len(tabla_frecuencias_relativa)
-values = list(tabla_frecuencias_relativa['Frecuencia Absoluta'])
-
-fig = go.Figure(go.Sankey(
-    node=dict(
-        label=labels,
-        pad=15,
-        thickness=20
-    ),
-    link=dict(
-        source=sources,
-        target=targets,
-        value=values
-    )
-))
-
-fig.update_layout(title_text="Distribución de Precios - Diagrama de Sankey", font_size=10)
-fig.show()
-
 
 # Personalización de diseño
 st.markdown("""

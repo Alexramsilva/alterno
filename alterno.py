@@ -70,6 +70,7 @@ fig, ax1 = plt.subplots(figsize=(14, 7))
 
 ax1.plot(df["Close"], label="Precio", color="black", linewidth=1)
 ax1.plot(df["MA10"], label="Media móvil (equilibrio)", color="orange")
+ax1.plot(df['Close'].iloc[-1], color='red', zorder=5, label="Último valor", s=25)
 
 ax1.fill_between(
     df.index,

@@ -117,6 +117,7 @@ st.pyplot(fig)
 
 # -----------------------------------------------------
 ##-----------------------Entra
+df = yf.download(ticker, period="ytd", interval="1d")
 df1=df["Close"]
 precios=df1.values.ravel()
 

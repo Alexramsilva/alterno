@@ -116,7 +116,34 @@ plt.title(f"Modelo del Resorte de Hooke aplicado al precio de {ticker}")
 st.pyplot(fig)
 
 # -----------------------------------------------------
+##-----------------------Entra
+df1=df["Close"]
+precios=df1.values.ravel()
 
+# Aplicar la Regla de Sturges
+n = len(precios)
+k = int(1 + np.log2(n))  # Número de intervalos
+
+# Crear los bins (intervalos)
+bins = np.linspace(min(precios), max(precios), k )
+
+# Aplicar pd.cut() para clasificar los valores en los intervalos
+precios_categorizados = pd.cut(precios, bins=bins, right=False)
+
+# Calcular la frecuencia de cada intervalo
+tabla_frecuencias = precios_categorizados.value_counts().sort_index()
+
+# Calcular la frecuencia relativa
+frecuencia_relativa = tabla_frecuencias / n
+
+# Crear la tabla final con frecuencias absolutas y relativas
+tabla_frecuencias_relativa = pd.DataFrame({
+    'Intervalo': [str(interval) for interval in tabla_frecuencias.index],
+    'Frecuencia Absoluta': tabla_frecuencias.values,
+    'Frecuencia Relativa': frecuencia_relativa.values
+})
+
+##------------------------Sale
 # Personalización de diseño
 st.markdown("""
 <style>

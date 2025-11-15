@@ -117,8 +117,8 @@ st.pyplot(fig)
 
 # -----------------------------------------------------
 ##-----------------------Entra
-df = yf.download(ticker, period="ytd", interval="1d")
-df1=df["Close"]
+df1 = yf.download(ticker, period="ytd", interval="1d")
+df1=df1["Close"]
 precios=df1.values.ravel()
 
 # Aplicar la Regla de Sturges

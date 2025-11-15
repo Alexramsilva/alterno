@@ -144,7 +144,7 @@ tabla_frecuencias_relativa = pd.DataFrame({
     'Frecuencia Relativa': frecuencia_relativa.values
 })
 df3=tabla_frecuencias_relativa.sort_values(by='Frecuencia Relativa', ascending=False)
-df3['Intervalo','Frecuencia Relativa']
+df3[['Intervalo','Frecuencia Relativa']]
 ##------------------------Sale
 # Personalización de diseño
 st.markdown("""

@@ -143,7 +143,7 @@ tabla_frecuencias_relativa = pd.DataFrame({
     'Frecuencia Absoluta': tabla_frecuencias.values,
     'Frecuencia Relativa': frecuencia_relativa.values
 })
-tabla_frecuencias_relativa
+tabla_frecuencias_relativa.sort(ascending=False)
 ##------------------------Sale
 # Personalización de diseño
 st.markdown("""

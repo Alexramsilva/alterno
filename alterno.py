@@ -114,8 +114,10 @@ ax2.legend(loc="lower left")
 plt.title(f"Modelo del Resorte de Hooke aplicado al precio de {ticker}")
 
 st.pyplot(fig)
-
-# -----------------------------------------------------
+##-----------------------------------------------------
+Precio=df["Close"].iloc[-1]
+Precio
+## -----------------------------------------------------
 ##-----------------------Entra
 df1 = yf.download(ticker, period="ytd", interval="1d")
 df1=df1["Close"]

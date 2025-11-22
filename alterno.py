@@ -19,7 +19,7 @@ import plotly.graph_objects as go
 # -----------------------------------------------------
 st.set_page_config(page_title="Modelo Hooke Trading", layout="wide")
 
-TICKERS = ["BTC-USD", "GAPB.MX", "PLTR", "SPY", "GRUMAB.MX", "FMTY14.MX", "IAU", "HOOD", "SOFI" ]
+TICKERS = ["BTC-USD", "GAPB.MX", "PLTR", "SPY", "GRUMAB.MX", "FMTY14.MX", "IAU", "HOOD", "SOFI", "NVDA" ]
 
 st.title("Modelo del Resorte de Hooke aplicado al Trading")
 

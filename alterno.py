@@ -118,7 +118,7 @@ st.pyplot(fig)
 Precio=df["Close"].iloc[-1]
 Precio
 ## -----------------------------------------------------
-df1 = yf.download(ticker, period="ytd", interval="1d")
+df1 = yf.download(ticker, period="1y", interval="1d")
 r=((df1["Close"].iloc[-1]-df1["Close"].iloc[0])/df1["Close"].iloc[0])*100
 r
 ##-----------------------Entra

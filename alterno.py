@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
 # -----------------------------------------------------
-# CONFIGURACIÓN
+# CONFIG
 # -----------------------------------------------------
 st.set_page_config(page_title="Modelo Hooke Trading", layout="wide")
 
@@ -24,23 +24,47 @@ TICKERS = ["BTC-USD","FMTY14.MX","GMEXICOB.MX","GENTERA.MX","AMZN","MELI","JPM",
 st.title("Modelo del Resorte de Hooke aplicado al Trading")
 
 # -----------------------------------------------------
+# FUNCIÓN ROBUSTA 🔥
+# -----------------------------------------------------
+def get_clean_data(ticker, period="2y"):
+    df = yf.download(ticker, period=period, interval="1d")
+
+    if df.empty:
+        return None
+
+    df = df.copy()
+
+    # 🔥 Manejo de MultiIndex (muy común en yfinance)
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
+    # 🔥 Asegurar columnas clave
+    required_cols = ["Close"]
+    for col in required_cols:
+        if col not in df.columns:
+            return None
+
+    # 🔥 Convertir a float seguro
+    if isinstance(df["Close"], pd.DataFrame):
+        df["Close"] = df["Close"].iloc[:, 0]
+
+    df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
+
+    df.dropna(inplace=True)
+
+    return df
+
+# -----------------------------------------------------
 # SELECCIÓN
 # -----------------------------------------------------
 ticker = st.selectbox("Selecciona un activo:", TICKERS)
 st.write(f"Descargando datos de **{ticker}**...")
 
-# -----------------------------------------------------
-# DATOS
-# -----------------------------------------------------
-df = yf.download(ticker, period="2y", interval="1d")
+df = get_clean_data(ticker)
 
-if df.empty:
-    st.error("No hay datos disponibles.")
+if df is None or df.empty:
+    st.error("No se pudieron procesar los datos.")
     st.stop()
-
-# LIMPIEZA CLAVE 🔥
-df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
-df.dropna(inplace=True)
 
 # -----------------------------------------------------
 # INDICADORES
@@ -64,7 +88,7 @@ df["Exit"] = np.where(abs(df["x"]) > threshold, 1, 0)
 df["Exit_diff"] = df["Exit"].diff().fillna(0)
 
 # -----------------------------------------------------
-# FECHAS NUMÉRICAS (SOLUCIÓN CLAVE)
+# FECHAS NUMÉRICAS (CLAVE)
 # -----------------------------------------------------
 x_dates = mdates.date2num(df.index)
 
@@ -73,7 +97,6 @@ x_dates = mdates.date2num(df.index)
 # -----------------------------------------------------
 fig, ax1 = plt.subplots(figsize=(14, 7))
 
-# Líneas
 ax1.plot(x_dates, df["Close"], label="Precio", color="black")
 ax1.plot(x_dates, df["MA10"], label="Media móvil", color="orange")
 
@@ -87,7 +110,7 @@ ax1.scatter(
     label="Último valor"
 )
 
-# Zona Hooke (FIX IMPORTANTE)
+# Zona elástica
 ax1.fill_between(
     x_dates,
     (df["MA10"] - threshold).astype(float),
@@ -114,10 +137,8 @@ for date in entry_dates:
     ax1.axvline(x=x, color="green", linestyle="--", alpha=0.5)
     ax1.text(x, y_min, "E", color="green", fontsize=8, rotation=90, va="bottom")
 
-# Formato eje X
 ax1.xaxis_date()
 
-# Labels
 ax1.set_xlabel("Fecha")
 ax1.set_ylabel("Precio")
 ax1.grid(True)
@@ -131,7 +152,7 @@ ax2.legend(loc="lower left")
 
 plt.title(f"Modelo de Hooke aplicado a {ticker}")
 
-# 👉 YA NO TRUENA
+# 🔥 YA NO FALLA
 st.pyplot(fig)
 
 # -----------------------------------------------------
@@ -143,35 +164,33 @@ st.metric("Precio actual", f"{precio:.2f}")
 # -----------------------------------------------------
 # RETORNO
 # -----------------------------------------------------
-df1 = yf.download(ticker, period="1y", interval="1d")
+df1 = get_clean_data(ticker, period="1y")
 
-df1["Close"] = pd.to_numeric(df1["Close"], errors="coerce")
-df1.dropna(inplace=True)
+if df1 is not None and not df1.empty:
+    r = ((df1["Close"].iloc[-1] - df1["Close"].iloc[0]) / df1["Close"].iloc[0]) * 100
+    st.metric("Rendimiento 1Y", f"{r:.2f}%")
 
-r = ((df1["Close"].iloc[-1] - df1["Close"].iloc[0]) / df1["Close"].iloc[0]) * 100
-st.metric("Rendimiento 1Y", f"{r:.2f}%")
+    # -----------------------------------------------------
+    # HISTOGRAMA
+    # -----------------------------------------------------
+    precios = df1["Close"].values
 
-# -----------------------------------------------------
-# HISTOGRAMA (STURGES)
-# -----------------------------------------------------
-precios = df1["Close"].values
+    n = len(precios)
+    k = int(1 + np.log2(n))
 
-n = len(precios)
-k = int(1 + np.log2(n))
+    bins = np.linspace(min(precios), max(precios), k)
 
-bins = np.linspace(min(precios), max(precios), k)
+    precios_categorizados = pd.cut(precios, bins=bins, right=False)
 
-precios_categorizados = pd.cut(precios, bins=bins, right=False)
+    tabla_frecuencias = precios_categorizados.value_counts().sort_index()
+    frecuencia_relativa = tabla_frecuencias / n
 
-tabla_frecuencias = precios_categorizados.value_counts().sort_index()
-frecuencia_relativa = tabla_frecuencias / n
+    df3 = pd.DataFrame({
+        'Intervalo': [str(interval) for interval in tabla_frecuencias.index],
+        'Frecuencia Relativa': frecuencia_relativa.values
+    }).sort_values(by='Frecuencia Relativa', ascending=False)
 
-df3 = pd.DataFrame({
-    'Intervalo': [str(interval) for interval in tabla_frecuencias.index],
-    'Frecuencia Relativa': frecuencia_relativa.values
-}).sort_values(by='Frecuencia Relativa', ascending=False)
-
-st.dataframe(df3)
+    st.dataframe(df3)
 
 # -----------------------------------------------------
 # ESTILO

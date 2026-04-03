@@ -12,26 +12,25 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import plotly.graph_objects as go
+import matplotlib.dates as mdates
 
 # -----------------------------------------------------
 # CONFIGURACIÓN
 # -----------------------------------------------------
 st.set_page_config(page_title="Modelo Hooke Trading", layout="wide")
 
-TICKERS = ["BTC-USD","FMTY14.MX","GMEXICOB.MX", "GENTERA.MX", "AMZN","MELI", "JPM", "V","CHDRAUIB.MX", "SOFI", "AMD","GAPB.MX","PINFRA.MX","NFLX","GOOGL","MCD", "PLTR", "SPY", "IAU", "HOOD", "NVDA", "WALMEX.MX", "FUNO11.MX","QBTS", "QUBT","QTUM", "FRES.MX",  "MCHI", "INDA", "TSM", "AMD", "GOOGL",  "ASURB.MX", "ZC=F","HG=F","BZ=F", "^MOVE", "^VIX", "DX-Y.NYB" ]
+TICKERS = ["BTC-USD","FMTY14.MX","GMEXICOB.MX","GENTERA.MX","AMZN","MELI","JPM","V","CHDRAUIB.MX","SOFI","AMD","GAPB.MX","PINFRA.MX","NFLX","GOOGL","MCD","PLTR","SPY","IAU","HOOD","NVDA","WALMEX.MX","FUNO11.MX","QBTS","QUBT","QTUM","FRES.MX","MCHI","INDA","TSM","ASURB.MX","ZC=F","HG=F","BZ=F","^MOVE","^VIX","DX-Y.NYB"]
 
 st.title("Modelo del Resorte de Hooke aplicado al Trading")
 
 # -----------------------------------------------------
-# SELECCIÓN DEL TICKER
+# SELECCIÓN
 # -----------------------------------------------------
 ticker = st.selectbox("Selecciona un activo:", TICKERS)
-
 st.write(f"Descargando datos de **{ticker}**...")
 
 # -----------------------------------------------------
-# DESCARGAR DATOS
+# DATOS
 # -----------------------------------------------------
 df = yf.download(ticker, period="2y", interval="1d")
 
@@ -39,125 +38,148 @@ if df.empty:
     st.error("No hay datos disponibles.")
     st.stop()
 
+# LIMPIEZA CLAVE 🔥
+df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
+df.dropna(inplace=True)
+
 # -----------------------------------------------------
-# CÁLCULOS TÉCNICOS
+# INDICADORES
 # -----------------------------------------------------
 df["MA5"] = df["Close"].rolling(5).mean()
 df["MA10"] = df["Close"].rolling(10).mean()
-
 df.dropna(inplace=True)
 
 df["Signal"] = np.where(df["MA5"] > df["MA10"], 1, 0)
 df["Crossover"] = df["Signal"].diff()
 
 # -----------------------------------------------------
-# MODELO DEL RESORTE (HOOKE)
+# MODELO HOOKE
 # -----------------------------------------------------
-close_values = df["Close"].values.flatten()
-ma10_values = df["MA10"].values.flatten()
-
-df["x"] = close_values - ma10_values
+df["x"] = df["Close"] - df["MA10"]
 k = 0.001
 df["Force"] = -k * df["x"]
 
 threshold = df["x"].std() * 1.5
 df["Exit"] = np.where(abs(df["x"]) > threshold, 1, 0)
+df["Exit_diff"] = df["Exit"].diff().fillna(0)
 
 # -----------------------------------------------------
-# GRÁFICO PRINCIPAL
+# FECHAS NUMÉRICAS (SOLUCIÓN CLAVE)
+# -----------------------------------------------------
+x_dates = mdates.date2num(df.index)
+
+# -----------------------------------------------------
+# GRÁFICO
 # -----------------------------------------------------
 fig, ax1 = plt.subplots(figsize=(14, 7))
 
-ax1.plot(df["Close"], label="Precio", color="black", linewidth=1)
-ax1.plot(df["MA10"], label="Media móvil (equilibrio)", color="orange")
-# Punto del último valor
+# Líneas
+ax1.plot(x_dates, df["Close"], label="Precio", color="black")
+ax1.plot(x_dates, df["MA10"], label="Media móvil", color="orange")
+
+# Último punto
 ax1.scatter(
-    df.index[-1],           # x
-    df["Close"].iloc[-1],   # y
+    x_dates[-1],
+    float(df["Close"].iloc[-1]),
     color='red',
     s=40,
     zorder=5,
     label="Último valor"
 )
 
+# Zona Hooke (FIX IMPORTANTE)
 ax1.fill_between(
-    df.index,
-    df["MA10"] - threshold,
-    df["MA10"] + threshold,
+    x_dates,
+    (df["MA10"] - threshold).astype(float),
+    (df["MA10"] + threshold).astype(float),
     color="green",
     alpha=0.2,
-    label="Zona elástica (Hooke)"
+    label="Zona elástica"
 )
 
-df["Exit_diff"] = df["Exit"].diff()
+# Señales
+y_max = float(df["Close"].max())
+y_min = float(df["Close"].min())
+
 exit_dates = df[(df["Exit_diff"] == 1) & (df["MA5"] > df["MA10"])].index
 entry_dates = df[(df["Exit_diff"] == -1) & (df["MA5"] < df["MA10"])].index
 
 for date in exit_dates:
-    ax1.axvline(x=date, color="red", linestyle="--", alpha=0.5)
-    ax1.text(date, df["Close"].max(), "S", color="red", fontsize=8, rotation=90, va="top")
+    x = mdates.date2num(date)
+    ax1.axvline(x=x, color="red", linestyle="--", alpha=0.5)
+    ax1.text(x, y_max, "S", color="red", fontsize=8, rotation=90, va="top")
 
 for date in entry_dates:
-    ax1.axvline(x=date, color="green", linestyle="--", alpha=0.5)
-    ax1.text(date, df["Close"].min(), "E", color="green", fontsize=8, rotation=90, va="bottom")
+    x = mdates.date2num(date)
+    ax1.axvline(x=x, color="green", linestyle="--", alpha=0.5)
+    ax1.text(x, y_min, "E", color="green", fontsize=8, rotation=90, va="bottom")
 
+# Formato eje X
+ax1.xaxis_date()
+
+# Labels
 ax1.set_xlabel("Fecha")
 ax1.set_ylabel("Precio")
 ax1.grid(True)
 ax1.legend(loc="upper left")
 
+# Fuerza
 ax2 = ax1.twinx()
-ax2.plot(df["Force"], label="Fuerza (-k*x)", color="blue", linestyle="--", alpha=0.7)
-ax2.set_ylabel("Fuerza (k*x)")
+ax2.plot(x_dates, df["Force"], label="Fuerza (-k*x)", color="blue", linestyle="--")
+ax2.set_ylabel("Fuerza")
 ax2.legend(loc="lower left")
 
-plt.title(f"Modelo del Resorte de Hooke aplicado al precio de {ticker}")
+plt.title(f"Modelo de Hooke aplicado a {ticker}")
 
+# 👉 YA NO TRUENA
 st.pyplot(fig)
-##-----------------------------------------------------
-Precio=df["Close"].iloc[-1]
-Precio
-## -----------------------------------------------------
+
+# -----------------------------------------------------
+# MÉTRICAS
+# -----------------------------------------------------
+precio = float(df["Close"].iloc[-1])
+st.metric("Precio actual", f"{precio:.2f}")
+
+# -----------------------------------------------------
+# RETORNO
+# -----------------------------------------------------
 df1 = yf.download(ticker, period="1y", interval="1d")
-r=((df1["Close"].iloc[-1]-df1["Close"].iloc[0])/df1["Close"].iloc[0])*100
-r
-##-----------------------Entra
-df1=df1["Close"]
-precios=df1.values.ravel()
 
-# Aplicar la Regla de Sturges
+df1["Close"] = pd.to_numeric(df1["Close"], errors="coerce")
+df1.dropna(inplace=True)
+
+r = ((df1["Close"].iloc[-1] - df1["Close"].iloc[0]) / df1["Close"].iloc[0]) * 100
+st.metric("Rendimiento 1Y", f"{r:.2f}%")
+
+# -----------------------------------------------------
+# HISTOGRAMA (STURGES)
+# -----------------------------------------------------
+precios = df1["Close"].values
+
 n = len(precios)
-k = int(1 + np.log2(n))  # Número de intervalos
+k = int(1 + np.log2(n))
 
-# Crear los bins (intervalos)
-bins = np.linspace(min(precios), max(precios), k )
+bins = np.linspace(min(precios), max(precios), k)
 
-# Aplicar pd.cut() para clasificar los valores en los intervalos
 precios_categorizados = pd.cut(precios, bins=bins, right=False)
 
-# Calcular la frecuencia de cada intervalo
 tabla_frecuencias = precios_categorizados.value_counts().sort_index()
-
-# Calcular la frecuencia relativa
 frecuencia_relativa = tabla_frecuencias / n
 
-# Crear la tabla final con frecuencias absolutas y relativas
-tabla_frecuencias_relativa = pd.DataFrame({
+df3 = pd.DataFrame({
     'Intervalo': [str(interval) for interval in tabla_frecuencias.index],
-    'Frecuencia Absoluta': tabla_frecuencias.values,
     'Frecuencia Relativa': frecuencia_relativa.values
-})
-df3=tabla_frecuencias_relativa.sort_values(by='Frecuencia Relativa', ascending=False)
-df3[['Intervalo','Frecuencia Relativa']]
-##------------------------Sale
-# Personalización de diseño
+}).sort_values(by='Frecuencia Relativa', ascending=False)
+
+st.dataframe(df3)
+
+# -----------------------------------------------------
+# ESTILO
+# -----------------------------------------------------
 st.markdown("""
 <style>
     .stApp {
-        background-color:  #00FF00;
-    }
-    .css-1d391kg {
-        color:  #faf7f8;
+        background-color: #00FF00;
     }
 </style>
 """, unsafe_allow_html=True)
